@@ -2,12 +2,6 @@
 Dashboard Electoral Perú — Análisis de MCPs
 Mesas de Centro de Votación × Padrón Electoral RENIEC 2025
 
-Estructura esperada en el repo:
-  ├── dashboard_electoral.py
-  ├── ELECTORES_POR_MCP.xlsx
-  ├── DISTRITO.zip
-  ├── PROVINCIA.zip
-  └── DEPARTAMENTO.zip
 """
 
 import os
@@ -187,11 +181,8 @@ total_d      = df_f["DISTRITO"].nunique()
 mcp_per_dist = round(total_mcp / total_d, 1) if total_d else 0
 
 kpis = [
-    ("🏛️", "Total MCPs",            f"{total_mcp:,}",      "centros de votación"),
-    ("🗂️", "Total Electores",        f"{total_e:,}",        "en el padrón filtrado"),
-    ("👤", "Promedio Electores/MCP", f"{avg_e_mcp:,}",      f"mediana {median_e_mcp:,}"),
-    ("📈", "MCP más grande",         f"{max_e:,}",          "electores máximo"),
-    ("📉", "MCP más pequeño",        f"{min_e:,}",          "electores mínimo"),
+    ("🏛️", "Total MCPs",            f"{total_mcp:,}"),
+    ("🗂️", "Total Electores",        f"{total_e:,}",        "en elecciones de MCP"),
     ("📍", "MCPs por Distrito",      f"{mcp_per_dist}",     f"{total_d:,} distritos"),
 ]
 
