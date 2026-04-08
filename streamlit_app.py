@@ -1,20 +1,31 @@
 """
-Dashboard Electoral Perú 2025
-Padrón MCP × Shapefile de Distritos
-Fuente: github.com/riegagabriel/SHAPEFILES_PERU_2025
+Dashboard Electoral Perú — Análisis de MCPs
+Mesas de Centro de Votación × Padrón Electoral RENIEC 2025
+
+Estructura esperada en el repo:
+  ├── dashboard_electoral.py
+  ├── ELECTORES_POR_MCP.xlsx
+  ├── DISTRITO.zip
+  ├── PROVINCIA.zip
+  └── DEPARTAMENTO.zip
 """
+
+import os
+import io
+import zipfile
+import tempfile
 
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
 import plotly.express as px
-import requests, zipfile, io, os, tempfile
+import plotly.graph_objects as go
 
 # ══════════════════════════════════════════════
 # CONFIGURACIÓN
 # ══════════════════════════════════════════════
 st.set_page_config(
-    page_title="Dashboard Electoral Perú",
+    page_title="MCPs Perú — Dashboard Electoral",
     page_icon="🗳️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -22,52 +33,55 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-  [data-testid="stAppViewContainer"] { background: #0d1117; }
-  [data-testid="stSidebar"]          { background: #161b22; }
+  [data-testid="stAppViewContainer"] { background:#0d1117; }
+  [data-testid="stSidebar"]          { background:#161b22; }
   .kpi-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    padding: 14px 18px;
-    text-align: center;
-    margin-bottom: 4px;
+    background:#161b22; border:1px solid #30363d;
+    border-radius:10px; padding:16px 12px;
+    text-align:center; margin-bottom:6px;
   }
-  .kpi-label { color:#8b949e; font-size:11px; font-weight:700;
-               text-transform:uppercase; letter-spacing:1px; }
-  .kpi-value { color:#f0f6fc; font-size:26px; font-weight:800; margin:4px 0; }
-  .kpi-sub   { color:#e63946; font-size:11px; }
+  .kpi-icon  { font-size:22px; margin-bottom:4px; }
+  .kpi-label { color:#8b949e; font-size:10px; font-weight:700;
+               text-transform:uppercase; letter-spacing:1.2px; }
+  .kpi-value { color:#f0f6fc; font-size:24px; font-weight:800; margin:5px 0 3px; }
+  .kpi-sub   { color:#e63946; font-size:11px; font-weight:600; }
   .sec-title {
-    border-left: 4px solid #e63946;
-    padding-left: 10px;
-    color: #f0f6fc;
-    font-weight: 700;
-    font-size: 15px;
-    margin: 18px 0 8px 0;
+    border-left:4px solid #e63946; padding-left:10px;
+    color:#f0f6fc; font-weight:700; font-size:15px;
+    margin:20px 0 10px;
+  }
+  .badge {
+    display:inline-block; background:#21262d;
+    border:1px solid #30363d; border-radius:6px;
+    padding:3px 10px; font-size:12px; color:#8b949e;
+    margin-right:6px;
   }
 </style>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
-# CONSTANTES
+# RUTAS LOCALES  (mismo directorio que este script)
 # ══════════════════════════════════════════════
+BASE = os.path.dirname(__file__)
 
-# Padrón: archivo local en el mismo repo que esta app
-import os as _os
-PADRON_PATH = _os.path.join(_os.path.dirname(__file__), "ELECTORES_POR_MCP.xlsx")
+PADRON_PATH = os.path.join(BASE, "ELECTORES_POR_MCP.xlsx")
+SHP_ZIPS = {
+    "Departamento": os.path.join(BASE, "DEPARTAMENTO.zip"),
+    "Provincia":    os.path.join(BASE, "PROVINCIA.zip"),
+    "Distrito":     os.path.join(BASE, "DISTRITO.zip"),
+}
 
-# Shapefiles: se descargan desde GitHub
-GITHUB_RAW = "https://raw.githubusercontent.com/riegagabriel/SHAPEFILES_PERU_2025/main/"
-DIST_ZIP   = GITHUB_RAW + "DISTRITO.zip"
-PROV_ZIP   = GITHUB_RAW + "PROVINCIA.zip"
-DEPT_ZIP   = GITHUB_RAW + "DEPARTAMENTO.zip"
-
-# Metadatos de shapefiles basados en tu print()
-# name_col  = columna de nombre en el shapefile (ya sabemos que es "DISTRITO", "PROVINCIA", "DEPARTAMEN")
-# join_left = columna equivalente en el padrón
-SHP_META = {
-    "Distrito":     {"url": DIST_ZIP, "name_col": "DISTRITO",    "join_left": "DISTRITO"},
-    "Provincia":    {"url": PROV_ZIP, "name_col": "PROVINCIA",   "join_left": "PROVINCIA"},
-    "Departamento": {"url": DEPT_ZIP, "name_col": "DEPARTAMEN",  "join_left": "DEPARTAMENTO"},
+# Columnas de nombre en cada shapefile (según tu print())
+SHP_NAME_COL = {
+    "Departamento": "DEPARTAMEN",   # truncado por ESRI
+    "Provincia":    "PROVINCIA",
+    "Distrito":     "DISTRITO",
+}
+# Columna equivalente en el padrón
+PADRON_JOIN_COL = {
+    "Departamento": "DEPARTAMENTO",
+    "Provincia":    "PROVINCIA",
+    "Distrito":     "DISTRITO",
 }
 
 # ══════════════════════════════════════════════
@@ -75,7 +89,6 @@ SHP_META = {
 # ══════════════════════════════════════════════
 @st.cache_data(show_spinner="Cargando padrón…")
 def load_padron() -> pd.DataFrame:
-    """Lee ELECTORES_POR_MCP.xlsx desde el mismo directorio que esta app."""
     df = pd.read_excel(PADRON_PATH)
     df.columns = df.columns.str.strip().str.upper()
     df["CANTIDAD DE ELECTORES"] = (
@@ -85,12 +98,10 @@ def load_padron() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(show_spinner="Descargando shapefile…")
-def load_shp(url: str) -> gpd.GeoDataFrame:
-    r = requests.get(url, timeout=120)
-    r.raise_for_status()
+@st.cache_data(show_spinner="Leyendo shapefile…")
+def load_shp(zip_path: str) -> gpd.GeoDataFrame:
     with tempfile.TemporaryDirectory() as tmp:
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        with zipfile.ZipFile(zip_path) as z:
             z.extractall(tmp)
         shp = next(f for f in os.listdir(tmp) if f.endswith(".shp"))
         gdf = gpd.read_file(os.path.join(tmp, shp))
@@ -98,30 +109,35 @@ def load_shp(url: str) -> gpd.GeoDataFrame:
     return gdf.to_crs(epsg=4326)
 
 # ══════════════════════════════════════════════
-# SIDEBAR — controles
+# SIDEBAR
 # ══════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("## 🗳️ Electoral Perú")
-    st.caption("Padrón MCP — RENIEC 2025")
+    st.markdown("## 🗳️ MCPs Perú")
+    st.caption("Mesas de Centro de Votación · RENIEC 2025")
     st.divider()
+
     st.markdown("### 🗺️ Mapa")
-    nivel       = st.selectbox("Nivel geográfico", list(SHP_META.keys()))
-    color_scale = st.selectbox("Paleta", ["Reds","YlOrRd","Blues","Viridis","Plasma","Oranges"])
+    nivel = st.selectbox("Nivel geográfico", ["Departamento", "Provincia", "Distrito"])
+    color_scale = st.selectbox("Paleta", ["Reds","YlOrRd","Blues","Plasma","Oranges","Viridis"])
+    metrica_mapa = st.radio(
+        "Métrica en el mapa",
+        ["N° de MCPs", "Total Electores", "Promedio Electores/MCP"],
+        index=0,
+    )
     st.divider()
     st.markdown("### 📊 Gráficos")
-    top_n = st.slider("Top N en barras", 10, 30, 15)
+    top_n = st.slider("Top N", 10, 25, 15)
     st.divider()
     st.markdown("### 🔍 Filtros")
 
-# ── Carga padrón ──────────────────────────────
+# ── Carga ─────────────────────────────────────
 try:
     df = load_padron()
 except Exception as e:
-    st.error(f"❌ No se pudo cargar el padrón: {e}")
-    st.info("Asegúrate de que **ELECTORES_POR_MCP.xlsx** esté en el mismo directorio que `dashboard_electoral.py`.")
+    st.error(f"❌ No se pudo cargar **ELECTORES_POR_MCP.xlsx**: {e}")
     st.stop()
 
-# ── Filtros en cascada ────────────────────────
+# ── Filtros en cascada ─────────────────────────
 with st.sidebar:
     depts    = ["Todos"] + sorted(df["DEPARTAMENTO"].unique())
     sel_dept = st.selectbox("Departamento", depts)
@@ -140,34 +156,44 @@ with st.sidebar:
 # ══════════════════════════════════════════════
 scope = " › ".join(
     x for x in [sel_dept, sel_prov, sel_dist]
-    if x not in ("Todos","Todas")
+    if x not in ("Todos", "Todas")
 ) or "Nacional"
 
 st.markdown(f"""
 <div style='background:linear-gradient(90deg,#c1121f,#e63946);
             border-radius:10px;padding:14px 24px;margin-bottom:18px'>
-  <h2 style='color:#fff;margin:0'>🗳️ Dashboard Electoral — Padrón MCP Perú</h2>
-  <p style='color:#ffd6d6;margin:3px 0 0;font-size:13px'>Alcance: <b>{scope}</b></p>
+  <h2 style='color:#fff;margin:0'>🗳️ Dashboard de MCPs — Padrón Electoral Perú</h2>
+  <p style='color:#ffd6d6;margin:4px 0 0;font-size:13px'>
+    <b>MCP</b> = Mesa de Centro de Votación &nbsp;|&nbsp; Alcance: <b>{scope}</b>
+  </p>
 </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
-# KPIs
+# MÉTRICAS BASE
 # ══════════════════════════════════════════════
-total_e   = int(df_f["CANTIDAD DE ELECTORES"].sum())
-total_mcp = len(df_f)
-total_d   = df_f["DISTRITO"].nunique()
-total_p   = df_f["PROVINCIA"].nunique()
-avg_e     = int(df_f["CANTIDAD DE ELECTORES"].mean()) if total_mcp else 0
+total_mcp    = len(df_f)
+total_e      = int(df_f["CANTIDAD DE ELECTORES"].sum())
+avg_e_mcp    = int(df_f["CANTIDAD DE ELECTORES"].mean())  if total_mcp else 0
+median_e_mcp = int(df_f["CANTIDAD DE ELECTORES"].median()) if total_mcp else 0
+max_e        = int(df_f["CANTIDAD DE ELECTORES"].max())    if total_mcp else 0
+min_e        = int(df_f["CANTIDAD DE ELECTORES"].min())    if total_mcp else 0
+total_d      = df_f["DISTRITO"].nunique()
+mcp_per_dist = round(total_mcp / total_d, 1) if total_d else 0
 
-for col, (label, val, sub) in zip(st.columns(5), [
-    ("Total Electores",    f"{total_e:,}",   "padrón filtrado"),
-    ("N° MCPs",            f"{total_mcp:,}", "centros de votación"),
-    ("Distritos",          f"{total_d:,}",   "con cobertura"),
-    ("Provincias",         f"{total_p:,}",   "cubiertas"),
-    ("Promedio Elect/MCP", f"{avg_e:,}",     "por centro"),
-]):
+kpis = [
+    ("🏛️", "Total MCPs",            f"{total_mcp:,}",      "centros de votación"),
+    ("🗂️", "Total Electores",        f"{total_e:,}",        "en el padrón filtrado"),
+    ("👤", "Promedio Electores/MCP", f"{avg_e_mcp:,}",      f"mediana {median_e_mcp:,}"),
+    ("📈", "MCP más grande",         f"{max_e:,}",          "electores máximo"),
+    ("📉", "MCP más pequeño",        f"{min_e:,}",          "electores mínimo"),
+    ("📍", "MCPs por Distrito",      f"{mcp_per_dist}",     f"{total_d:,} distritos"),
+]
+
+cols_kpi = st.columns(6)
+for col, (icon, label, val, sub) in zip(cols_kpi, kpis):
     col.markdown(f"""
     <div class="kpi-card">
+      <div class="kpi-icon">{icon}</div>
       <div class="kpi-label">{label}</div>
       <div class="kpi-value">{val}</div>
       <div class="kpi-sub">{sub}</div>
@@ -176,197 +202,286 @@ for col, (label, val, sub) in zip(st.columns(5), [
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
-# AGGREGACIONES
+# AGGREGACIONES POR NIVEL
 # ══════════════════════════════════════════════
-def agg_by(cols):
-    return (df_f.groupby(cols)
-                .agg(ELECTORES=("CANTIDAD DE ELECTORES","sum"),
-                     MCPS=("MCP","count"))
-                .reset_index()
-                .sort_values("ELECTORES", ascending=False))
+def agg_nivel(cols):
+    return (
+        df_f.groupby(cols)
+            .agg(
+                MCPS        =("MCP","count"),
+                ELECTORES   =("CANTIDAD DE ELECTORES","sum"),
+                PROM_ELECT  =("CANTIDAD DE ELECTORES","mean"),
+            )
+            .reset_index()
+            .assign(PROM_ELECT=lambda x: x["PROM_ELECT"].round(0).astype(int))
+    )
 
-by_dept = agg_by("DEPARTAMENTO")
-by_prov = agg_by(["DEPARTAMENTO","PROVINCIA"])
-by_dist = agg_by(["DEPARTAMENTO","PROVINCIA","DISTRITO"])
+by_dept = agg_nivel("DEPARTAMENTO").sort_values("MCPS", ascending=False)
+by_prov = agg_nivel(["DEPARTAMENTO","PROVINCIA"]).sort_values("MCPS", ascending=False)
+by_dist = agg_nivel(["DEPARTAMENTO","PROVINCIA","DISTRITO"]).sort_values("MCPS", ascending=False)
+
+# Mapa de métrica seleccionada
+metrica_col = {"N° de MCPs":"MCPS",
+               "Total Electores":"ELECTORES",
+               "Promedio Electores/MCP":"PROM_ELECT"}[metrica_mapa]
 
 # ══════════════════════════════════════════════
-# FILA 1 — MAPA + BARRAS
+# FILA 1 — MAPA + BARRAS MCPs POR DEPARTAMENTO
 # ══════════════════════════════════════════════
 col_map, col_bar = st.columns([3, 2], gap="medium")
 
+# ── Barras: MCPs por departamento ─────────────
 with col_bar:
-    st.markdown('<div class="sec-title">Top Departamentos por Electores</div>',
+    st.markdown('<div class="sec-title">MCPs y Electores por Departamento</div>',
                 unsafe_allow_html=True)
-    fig_bar = px.bar(
-        by_dept.head(top_n), x="ELECTORES", y="DEPARTAMENTO",
-        orientation="h", color="ELECTORES",
-        color_continuous_scale=color_scale, text="ELECTORES",
-    )
-    fig_bar.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
+
+    # Doble eje: barras = MCPs, línea = electores
+    dept_top = by_dept.head(top_n).sort_values("MCPS")
+    fig_bar = go.Figure()
+    fig_bar.add_trace(go.Bar(
+        y=dept_top["DEPARTAMENTO"], x=dept_top["MCPS"],
+        orientation="h", name="N° MCPs",
+        marker_color="#e63946",
+        text=dept_top["MCPS"], textposition="outside",
+        textfont_color="#f0f6fc",
+    ))
+    fig_bar.add_trace(go.Scatter(
+        y=dept_top["DEPARTAMENTO"],
+        x=dept_top["ELECTORES"] / dept_top["ELECTORES"].max() * dept_top["MCPS"].max(),
+        mode="markers",
+        name="Electores (rel.)",
+        marker=dict(color="#ffd166", size=8, symbol="diamond"),
+        hovertemplate="%{customdata:,} electores<extra></extra>",
+        customdata=dept_top["ELECTORES"],
+    ))
     fig_bar.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#f0f6fc", coloraxis_showscale=False,
-        margin=dict(l=0,r=70,t=10,b=10), height=440,
-        yaxis={"categoryorder":"total ascending","title":""},
-        xaxis_title="Electores",
+        font_color="#f0f6fc",
+        legend=dict(orientation="h", y=1.08, font_size=11),
+        margin=dict(l=0, r=60, t=10, b=10), height=440,
+        xaxis_title="N° MCPs",
+        yaxis_title="",
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
+# ── Mapa coroplético ──────────────────────────
 with col_map:
-    st.markdown(f'<div class="sec-title">🗺️ Mapa por {nivel}</div>',
-                unsafe_allow_html=True)
-    meta = SHP_META[nivel]
-    try:
-        gdf      = load_shp(meta["url"])
-        name_col = meta["name_col"]   # ya está en mayúsculas por load_shp
+    st.markdown(
+        f'<div class="sec-title">🗺️ {metrica_mapa} por {nivel}</div>',
+        unsafe_allow_html=True,
+    )
+    zip_path = SHP_ZIPS[nivel]
 
-        # Fallback si la columna no existe exactamente
-        if name_col not in gdf.columns:
-            alt = [c for c in gdf.columns
-                   if any(k in c for k in ["DIST","PROV","DEP","NOMB"])]
-            name_col = alt[0] if alt else gdf.columns[0]
-            st.caption(f"ℹ️ Columna usada para join: `{name_col}`")
+    if not os.path.exists(zip_path):
+        st.warning(f"⚠️ No se encontró **{os.path.basename(zip_path)}** en el directorio de la app.\n\n"
+                   f"Agrega el archivo al repo junto a `dashboard_electoral.py`.")
+    else:
+        try:
+            gdf      = load_shp(zip_path)
+            name_col = SHP_NAME_COL[nivel]
 
-        # Normalizar texto
-        gdf[name_col] = gdf[name_col].str.upper().str.strip()
+            # Fallback automático si la columna no existe
+            if name_col not in gdf.columns:
+                candidates = [c for c in gdf.columns
+                              if any(k in c for k in ["DIST","PROV","DEP","NOMB"])]
+                name_col = candidates[0] if candidates else gdf.columns[0]
+                st.caption(f"ℹ️ Columna detectada: `{name_col}`")
 
-        # Tabla de aggregación correcta y renombrar para el join
-        if nivel == "Departamento":
-            agg = by_dept.rename(columns={"DEPARTAMENTO": name_col})
-        elif nivel == "Provincia":
-            agg = by_prov.rename(columns={"PROVINCIA": name_col})
-        else:
-            agg = by_dist.rename(columns={"DISTRITO": name_col})
+            # Tabla de aggregación según nivel
+            agg_map = {
+                "Departamento": by_dept.rename(columns={"DEPARTAMENTO": name_col}),
+                "Provincia":    by_prov.rename(columns={"PROVINCIA": name_col}),
+                "Distrito":     by_dist.rename(columns={"DISTRITO": name_col}),
+            }[nivel]
 
-        agg[name_col] = agg[name_col].str.upper().str.strip()
+            # Normalizar texto para join
+            gdf[name_col]      = gdf[name_col].str.upper().str.strip()
+            agg_map[name_col]  = agg_map[name_col].str.upper().str.strip()
 
-        merged = gdf.merge(agg[[name_col,"ELECTORES","MCPS"]],
-                           on=name_col, how="left")
-        merged["ELECTORES"] = merged["ELECTORES"].fillna(0).astype(int)
-        merged["MCPS"]      = merged["MCPS"].fillna(0).astype(int)
+            merged = gdf.merge(
+                agg_map[[name_col, "MCPS", "ELECTORES", "PROM_ELECT"]],
+                on=name_col, how="left"
+            )
+            merged["MCPS"]       = merged["MCPS"].fillna(0).astype(int)
+            merged["ELECTORES"]  = merged["ELECTORES"].fillna(0).astype(int)
+            merged["PROM_ELECT"] = merged["PROM_ELECT"].fillna(0).astype(int)
 
-        fig_map = px.choropleth_map(
-            merged,
-            geojson=merged.__geo_interface__,
-            locations=merged.index,
-            color="ELECTORES",
-            color_continuous_scale=color_scale,
-            hover_name=name_col,
-            hover_data={"ELECTORES":":,","MCPS":True},
-            labels={"ELECTORES":"Electores","MCPS":"N° MCPs"},
-            center={"lat":-9.19,"lon":-75.0},
-            zoom=3.8,
-            opacity=0.78,
-        )
-        fig_map.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", font_color="#f0f6fc",
-            margin=dict(l=0,r=0,t=0,b=0), height=440,
-            coloraxis_colorbar=dict(title="Electores",
-                                    tickfont_color="#f0f6fc",
-                                    title_font_color="#f0f6fc"),
-            map_style="carto-darkmatter",
-        )
-        st.plotly_chart(fig_map, use_container_width=True)
+            fig_map = px.choropleth_map(
+                merged,
+                geojson=merged.__geo_interface__,
+                locations=merged.index,
+                color=metrica_col,
+                color_continuous_scale=color_scale,
+                hover_name=name_col,
+                hover_data={
+                    "MCPS":       True,
+                    "ELECTORES":  ":,",
+                    "PROM_ELECT": True,
+                },
+                labels={
+                    "MCPS":       "N° MCPs",
+                    "ELECTORES":  "Electores",
+                    "PROM_ELECT": "Prom. Elect/MCP",
+                    metrica_col:  metrica_mapa,
+                },
+                center={"lat": -9.19, "lon": -75.0},
+                zoom=3.8,
+                opacity=0.80,
+            )
+            fig_map.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                font_color="#f0f6fc",
+                margin=dict(l=0, r=0, t=0, b=0),
+                height=440,
+                coloraxis_colorbar=dict(
+                    title=metrica_mapa,
+                    tickfont_color="#f0f6fc",
+                    title_font_color="#f0f6fc",
+                ),
+                map_style="carto-darkmatter",
+            )
+            st.plotly_chart(fig_map, use_container_width=True)
 
-    except Exception as e:
-        st.warning(f"⚠️ No se pudo renderizar el mapa de {nivel.lower()}s.\n\n{e}")
+        except Exception as e:
+            st.warning(f"⚠️ Error al renderizar el mapa: {e}")
 
 # ══════════════════════════════════════════════
-# FILA 2 — TREEMAP + HISTOGRAMA
+# FILA 2 — DISTRIBUCIÓN DE ELECTORES POR MCP
 # ══════════════════════════════════════════════
-st.markdown('<div class="sec-title">Composición y Distribución</div>',
+st.markdown('<div class="sec-title">Distribución de Electores por MCP</div>',
             unsafe_allow_html=True)
-col_tree, col_hist = st.columns([2, 1], gap="medium")
 
-with col_tree:
-    df_tree = (df_f.groupby(["DEPARTAMENTO","PROVINCIA","DISTRITO"])
-                   .agg(ELECTORES=("CANTIDAD DE ELECTORES","sum"))
-                   .reset_index())
-    fig_tree = px.treemap(
-        df_tree,
-        path=["DEPARTAMENTO","PROVINCIA","DISTRITO"],
-        values="ELECTORES",
-        color="ELECTORES",
-        color_continuous_scale=color_scale,
-        title="Electores: Departamento → Provincia → Distrito",
-    )
-    fig_tree.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", font_color="#f0f6fc",
-        margin=dict(l=0,r=0,t=40,b=0), height=380,
-    )
-    st.plotly_chart(fig_tree, use_container_width=True)
+col_hist, col_box, col_pie = st.columns([2, 2, 1], gap="medium")
 
 with col_hist:
     fig_hist = px.histogram(
-        df_f, x="CANTIDAD DE ELECTORES", nbins=40,
+        df_f, x="CANTIDAD DE ELECTORES", nbins=50,
         color_discrete_sequence=["#e63946"],
-        title="Distribución de tamaño de MCPs",
-        labels={"CANTIDAD DE ELECTORES":"Electores/MCP"},
+        title="Histograma de tamaño de MCPs",
+        labels={"CANTIDAD DE ELECTORES": "Electores/MCP", "count": "N° MCPs"},
     )
+    fig_hist.add_vline(x=avg_e_mcp, line_dash="dash", line_color="#ffd166",
+                       annotation_text=f"Promedio: {avg_e_mcp:,}",
+                       annotation_font_color="#ffd166")
     fig_hist.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#f0f6fc", margin=dict(l=0,r=0,t=40,b=0), height=380,
+        font_color="#f0f6fc", margin=dict(l=0,r=0,t=40,b=0), height=320,
     )
     st.plotly_chart(fig_hist, use_container_width=True)
 
+with col_box:
+    # Box plot por departamento (top 10 por cantidad de MCPs)
+    top_depts_box = by_dept.head(10)["DEPARTAMENTO"].tolist()
+    df_box = df_f[df_f["DEPARTAMENTO"].isin(top_depts_box)]
+    fig_box = px.box(
+        df_box, x="DEPARTAMENTO", y="CANTIDAD DE ELECTORES",
+        color="DEPARTAMENTO",
+        title="Dispersión Electores/MCP (top 10 depts.)",
+        labels={"CANTIDAD DE ELECTORES":"Electores/MCP","DEPARTAMENTO":""},
+    )
+    fig_box.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#f0f6fc", showlegend=False,
+        margin=dict(l=0,r=0,t=40,b=0), height=320,
+        xaxis_tickangle=-35,
+    )
+    st.plotly_chart(fig_box, use_container_width=True)
+
+with col_pie:
+    # Rangos de tamaño de MCP
+    bins   = [0, 500, 1000, 2000, 5000, 999999]
+    labels = ["≤500","501-1k","1k-2k","2k-5k",">5k"]
+    df_f2  = df_f.copy()
+    df_f2["RANGO"] = pd.cut(df_f2["CANTIDAD DE ELECTORES"],
+                             bins=bins, labels=labels)
+    rango_cnt = df_f2["RANGO"].value_counts().reset_index()
+    rango_cnt.columns = ["RANGO","MCPs"]
+    fig_pie = px.pie(
+        rango_cnt, names="RANGO", values="MCPs",
+        color_discrete_sequence=px.colors.sequential.Reds_r,
+        title="MCPs por rango de tamaño",
+        hole=0.45,
+    )
+    fig_pie.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", font_color="#f0f6fc",
+        margin=dict(l=0,r=0,t=40,b=0), height=320,
+        legend=dict(font_size=10),
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
+
 # ══════════════════════════════════════════════
-# FILA 3 — TOP DISTRITOS + SCATTER
+# FILA 3 — TOP DISTRITOS MCPs + SCATTER
 # ══════════════════════════════════════════════
-st.markdown('<div class="sec-title">Análisis Distrital</div>',
+st.markdown('<div class="sec-title">Análisis Distrital de MCPs</div>',
             unsafe_allow_html=True)
+
 col_top, col_scat = st.columns(2, gap="medium")
 
 with col_top:
     top_dist = by_dist.head(top_n).copy()
     top_dist["LABEL"] = top_dist["DISTRITO"] + " (" + top_dist["PROVINCIA"] + ")"
     fig_td = px.bar(
-        top_dist, x="ELECTORES", y="LABEL", orientation="h",
+        top_dist.sort_values("MCPS"),
+        x="MCPS", y="LABEL", orientation="h",
         color="ELECTORES", color_continuous_scale=color_scale,
-        text="ELECTORES", title=f"Top {top_n} Distritos",
+        text="MCPS",
+        title=f"Top {top_n} Distritos por N° de MCPs",
+        labels={"MCPS":"N° MCPs","LABEL":"","ELECTORES":"Electores totales"},
     )
-    fig_td.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
+    fig_td.update_traces(texttemplate="%{text}", textposition="outside")
     fig_td.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#f0f6fc", coloraxis_showscale=False,
-        margin=dict(l=0,r=70,t=40,b=10), height=420,
-        yaxis={"categoryorder":"total ascending","title":""},
+        font_color="#f0f6fc",
+        margin=dict(l=0,r=50,t=40,b=10), height=420,
+        yaxis_title="",
+        coloraxis_colorbar=dict(title="Electores",
+                                tickfont_color="#f0f6fc",
+                                title_font_color="#f0f6fc"),
     )
     st.plotly_chart(fig_td, use_container_width=True)
 
 with col_scat:
     fig_sc = px.scatter(
         by_dist,
-        x="MCPS", y="ELECTORES",
+        x="MCPS", y="PROM_ELECT",
+        size="ELECTORES",
         color="DEPARTAMENTO",
         hover_name="DISTRITO",
-        hover_data={"PROVINCIA":True,"ELECTORES":":,","MCPS":True},
-        labels={"MCPS":"N° MCPs","ELECTORES":"Total Electores"},
-        title="MCPs vs Electores por Distrito",
+        hover_data={"PROVINCIA":True,
+                    "MCPS":True,
+                    "ELECTORES":":,",
+                    "PROM_ELECT":True},
+        labels={"MCPS":"N° MCPs",
+                "PROM_ELECT":"Promedio Electores/MCP",
+                "ELECTORES":"Total Electores"},
+        title="N° MCPs vs Promedio Electores/MCP por Distrito",
     )
     fig_sc.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#f0f6fc", legend=dict(font_size=9,title=""),
+        font_color="#f0f6fc", legend=dict(font_size=9, title=""),
         margin=dict(l=0,r=0,t=40,b=10), height=420,
     )
     st.plotly_chart(fig_sc, use_container_width=True)
 
 # ══════════════════════════════════════════════
-# TABLA DETALLE
+# TABLA DETALLE MCPs
 # ══════════════════════════════════════════════
-with st.expander("📋 Ver tabla completa del padrón filtrado"):
-    show_cols = ["COD_MCP_RENIEC","DEPARTAMENTO","PROVINCIA",
-                 "DISTRITO","MCP","CANTIDAD DE ELECTORES"]
-    show_cols = [c for c in show_cols if c in df_f.columns]
+with st.expander("📋 Ver detalle de MCPs (padrón filtrado)"):
+    show_cols = [c for c in
+                 ["COD_MCP_RENIEC","DEPARTAMENTO","PROVINCIA","DISTRITO",
+                  "MCP","CANTIDAD DE ELECTORES"]
+                 if c in df_f.columns]
     st.dataframe(
-        df_f[show_cols].sort_values("CANTIDAD DE ELECTORES", ascending=False),
+        df_f[show_cols].sort_values("CANTIDAD DE ELECTORES", ascending=False)
+                       .reset_index(drop=True),
         use_container_width=True, height=320,
     )
     st.download_button(
         "⬇️ Descargar CSV filtrado",
         df_f[show_cols].to_csv(index=False).encode("utf-8"),
-        file_name="padron_mcp_filtrado.csv",
+        file_name="mcps_filtrado.csv",
         mime="text/csv",
     )
 
 st.divider()
-st.caption("Fuente: RENIEC · Shapefiles: github.com/riegagabriel/SHAPEFILES_PERU_2025")
+st.caption("Fuente: RENIEC · Shapefiles: INEI 2025")
