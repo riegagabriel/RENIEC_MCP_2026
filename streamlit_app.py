@@ -179,8 +179,7 @@ mcp_per_dist = round(total_mcp / total_d, 1) if total_d else 0
 
 kpis = [
     ("🏛️", "Total MCPs",            f"{total_mcp:,}",      "centros de votación"),
-    ("🗂️", "Total Electores",        f"{total_e:,}",        "en el padrón filtrado"),
-    ("👤", "Promedio Electores/MCP", f"{avg_e_mcp:,}",      f"mediana {median_e_mcp:,}"),
+    ("🗂️", "Total Electores",        f"{total_e:,}",        "para elecciones de MCP"),
     ("📈", "MCP más grande",         f"{max_e:,}",          "electores máximo"),
     ("📉", "MCP más pequeño",        f"{min_e:,}",          "electores mínimo"),
     ("📍", "MCPs por Distrito",      f"{mcp_per_dist}",     f"{total_d:,} distritos"),
