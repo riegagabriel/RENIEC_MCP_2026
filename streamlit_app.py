@@ -263,21 +263,34 @@ with col_map:
         unsafe_allow_html=True,
     )
     html_path = MAP_HTML[nivel]
-    if not os.path.exists(html_path):
-        st.info(
-            f"📋 El mapa **{os.path.basename(html_path)}** aún no existe.\n\n"
-            f"Ejecuta **`generar_mapas.py`** en Google Colab, descarga los 3 HTMLs "
-            f"y colócalos en el mismo directorio que esta app.",
-            icon="ℹ️",
-        )
-        st.code(
-            "# En Colab:\n"
-            "# 1. Sube ELECTORES_POR_MCP.xlsx + los 3 ZIPs\n"
-            "# 2. Ejecuta generar_mapas.py\n"
-            "# 3. Descarga mapa_departamento.html, mapa_provincia.html, mapa_distrito.html\n"
-            "# 4. Súbelos al repo junto a dashboard_electoral.py",
-            language="python",
-        )
+
+if not os.path.exists(html_path):
+    st.info(
+        f"📋 El mapa **{os.path.basename(html_path)}** aún no existe.",
+        icon="ℹ️",
+    )
+else:
+    # Si es ZIP → extraer y leer HTML
+    if html_path.endswith(".zip"):
+        with tempfile.TemporaryDirectory() as tmp:
+            with zipfile.ZipFile(html_path, 'r') as z:
+                z.extractall(tmp)
+
+            # Buscar el .html dentro del zip
+            html_file = next(
+                (f for f in os.listdir(tmp) if f.endswith(".html")),
+                None
+            )
+
+            if html_file is None:
+                st.error("❌ No se encontró archivo HTML dentro del ZIP")
+            else:
+                with open(os.path.join(tmp, html_file), "r", encoding="utf-8") as f:
+                    html_content = f.read()
+
+                components.html(html_content, height=460, scrolling=False)
+
+    # Si ya es HTML directo
     else:
         with open(html_path, "r", encoding="utf-8") as f:
             html_content = f.read()
