@@ -49,13 +49,17 @@ st.markdown("""
 
 # ══════════════════════════════════════════════
 # CONSTANTES
-# Ajusta los nombres de archivo si difieren en tu repo
 # ══════════════════════════════════════════════
+
+# Padrón: archivo local en el mismo repo que esta app
+import os as _os
+PADRON_PATH = _os.path.join(_os.path.dirname(__file__), "ELECTORES_POR_MCP.xlsx")
+
+# Shapefiles: se descargan desde GitHub
 GITHUB_RAW = "https://raw.githubusercontent.com/riegagabriel/SHAPEFILES_PERU_2025/main/"
-PADRON_URL = GITHUB_RAW + "PADRON_MCP.xlsx"   # ← cambia a .csv si aplica
-DIST_ZIP   = GITHUB_RAW + "DISTRITOS_LIMITES.zip"
-PROV_ZIP   = GITHUB_RAW + "PROVINCIAL_LIMITES.zip"
-DEPT_ZIP   = GITHUB_RAW + "DEPARTAMENTOS_LIMITES.zip"
+DIST_ZIP   = GITHUB_RAW + "DISTRITO.zip"
+PROV_ZIP   = GITHUB_RAW + "PROVINCIA.zip"
+DEPT_ZIP   = GITHUB_RAW + "DEPARTAMENTO.zip"
 
 # Metadatos de shapefiles basados en tu print()
 # name_col  = columna de nombre en el shapefile (ya sabemos que es "DISTRITO", "PROVINCIA", "DEPARTAMEN")
@@ -69,13 +73,10 @@ SHP_META = {
 # ══════════════════════════════════════════════
 # CARGA DE DATOS
 # ══════════════════════════════════════════════
-@st.cache_data(show_spinner="Cargando padrón desde GitHub…")
+@st.cache_data(show_spinner="Cargando padrón…")
 def load_padron() -> pd.DataFrame:
-    r = requests.get(PADRON_URL, timeout=60)
-    r.raise_for_status()
-    df = (pd.read_excel(io.BytesIO(r.content))
-          if PADRON_URL.endswith((".xlsx",".xls"))
-          else pd.read_csv(io.BytesIO(r.content)))
+    """Lee ELECTORES_POR_MCP.xlsx desde el mismo directorio que esta app."""
+    df = pd.read_excel(PADRON_PATH)
     df.columns = df.columns.str.strip().str.upper()
     df["CANTIDAD DE ELECTORES"] = (
         pd.to_numeric(df["CANTIDAD DE ELECTORES"], errors="coerce")
@@ -116,8 +117,8 @@ with st.sidebar:
 try:
     df = load_padron()
 except Exception as e:
-    st.error(f"❌ No se pudo cargar el padrón desde GitHub: {e}")
-    st.info("Verifica que PADRON_URL apunte al archivo correcto en tu repo.")
+    st.error(f"❌ No se pudo cargar el padrón: {e}")
+    st.info("Asegúrate de que **ELECTORES_POR_MCP.xlsx** esté en el mismo directorio que `dashboard_electoral.py`.")
     st.stop()
 
 # ── Filtros en cascada ────────────────────────
