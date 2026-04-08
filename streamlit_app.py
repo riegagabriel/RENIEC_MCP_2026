@@ -181,12 +181,13 @@ total_d      = df_f["DISTRITO"].nunique()
 mcp_per_dist = round(total_mcp / total_d, 1) if total_d else 0
 
 kpis = [
-    ("🏛️", "Total MCPs",            f"{total_mcp:,}"),
+    ("🏛️", "Total MCPs",            f"{total_mcp:,}", ""),
     ("🗂️", "Total Electores",        f"{total_e:,}",        "en elecciones de MCP"),
     ("📍", "MCPs por Distrito",      f"{mcp_per_dist}",     f"{total_d:,} distritos"),
 ]
 
 cols_kpi = st.columns(6)
+
 for col, (icon, label, val, sub) in zip(cols_kpi, kpis):
     col.markdown(f"""
     <div class="kpi-card">
@@ -195,8 +196,6 @@ for col, (icon, label, val, sub) in zip(cols_kpi, kpis):
       <div class="kpi-value">{val}</div>
       <div class="kpi-sub">{sub}</div>
     </div>""", unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
 # AGGREGACIONES POR NIVEL
@@ -257,44 +256,50 @@ with col_bar:
     st.plotly_chart(fig_bar, use_container_width=True)
 
 # ── Mapa HTML pre-generado (Folium) ──────────
+# ── Mapa HTML (soporta .zip y .html) ──────────
 with col_map:
     st.markdown(
         f'<div class="sec-title">🗺️ MCPs por {nivel} — click para ver detalle</div>',
         unsafe_allow_html=True,
     )
+
     html_path = MAP_HTML[nivel]
 
-if not os.path.exists(html_path):
-    st.info(
-        f"📋 El mapa **{os.path.basename(html_path)}** aún no existe.",
-        icon="ℹ️",
-    )
-else:
-    # Si es ZIP → extraer y leer HTML
-    if html_path.endswith(".zip"):
-        with tempfile.TemporaryDirectory() as tmp:
-            with zipfile.ZipFile(html_path, 'r') as z:
-                z.extractall(tmp)
+    if not os.path.exists(html_path):
+        st.info(
+            f"📋 El mapa **{os.path.basename(html_path)}** no existe en el directorio.",
+            icon="ℹ️",
+        )
 
-            # Buscar el .html dentro del zip
-            html_file = next(
-                (f for f in os.listdir(tmp) if f.endswith(".html")),
-                None
-            )
+    else:
+        try:
+            # ── CASO 1: ZIP ─────────────────────
+            if html_path.endswith(".zip"):
+                with tempfile.TemporaryDirectory() as tmp:
+                    with zipfile.ZipFile(html_path, 'r') as z:
+                        z.extractall(tmp)
 
-            if html_file is None:
-                st.error("❌ No se encontró archivo HTML dentro del ZIP")
+                    # buscar html en cualquier nivel
+                    import glob
+                    html_files = glob.glob(os.path.join(tmp, "**/*.html"), recursive=True)
+
+                    if not html_files:
+                        st.error("❌ No se encontró archivo HTML dentro del ZIP")
+                    else:
+                        with open(html_files[0], "r", encoding="utf-8") as f:
+                            html_content = f.read()
+
+                        components.html(html_content, height=460, scrolling=False)
+
+            # ── CASO 2: HTML directo ────────────
             else:
-                with open(os.path.join(tmp, html_file), "r", encoding="utf-8") as f:
+                with open(html_path, "r", encoding="utf-8") as f:
                     html_content = f.read()
 
                 components.html(html_content, height=460, scrolling=False)
 
-    # Si ya es HTML directo
-    else:
-        with open(html_path, "r", encoding="utf-8") as f:
-            html_content = f.read()
-        components.html(html_content, height=460, scrolling=False)
+        except Exception as e:
+            st.error(f"❌ Error cargando el mapa: {e}")
 
 # ══════════════════════════════════════════════
 # FILA 2 — DISTRIBUCIÓN DE ELECTORES POR MCP
