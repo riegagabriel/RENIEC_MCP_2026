@@ -100,7 +100,10 @@ def load_shp(zip_path: str) -> gpd.GeoDataFrame:
         shp = next(f for f in os.listdir(tmp) if f.endswith(".shp"))
         gdf = gpd.read_file(os.path.join(tmp, shp))
     gdf.columns = [c.strip().upper() for c in gdf.columns]
+    gdf = gdf.set_geometry("GEOMETRY")   # ← línea nueva
     return gdf.to_crs(epsg=4326)
+
+
 
 # ══════════════════════════════════════════════
 # SIDEBAR
