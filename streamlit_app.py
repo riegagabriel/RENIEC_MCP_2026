@@ -2,6 +2,12 @@
 Dashboard Electoral Perú — Análisis de MCPs
 Mesas de Centro de Votación × Padrón Electoral RENIEC 2025
 
+Estructura esperada en el repo:
+  ├── dashboard_electoral.py
+  ├── ELECTORES_POR_MCP.xlsx
+  ├── DISTRITO.zip
+  ├── PROVINCIA.zip
+  └── DEPARTAMENTO.zip
 """
 
 import os
@@ -10,6 +16,7 @@ import zipfile
 import tempfile
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import geopandas as gpd
 import plotly.express as px
@@ -65,6 +72,12 @@ SHP_ZIPS = {
     "Distrito":     os.path.join(BASE, "DISTRITOS_LIMITES.zip"),
 }
 
+MAP_HTML = {
+    "Departamento": os.path.join(BASE, "mapa_departamento.zip"),
+    "Provincia":    os.path.join(BASE, "mapa_provincia.zip"),
+    "Distrito":     os.path.join(BASE, "mapa_distrito.zip"),
+}
+
 # Columnas de nombre en cada shapefile (según tu print())
 SHP_NAME_COL = {
     "Departamento": "DEPARTAMEN",   # truncado por ESRI
@@ -100,10 +113,8 @@ def load_shp(zip_path: str) -> gpd.GeoDataFrame:
         shp = next(f for f in os.listdir(tmp) if f.endswith(".shp"))
         gdf = gpd.read_file(os.path.join(tmp, shp))
     gdf.columns = [c.strip().upper() for c in gdf.columns]
-    gdf = gdf.set_geometry("GEOMETRY")   # ← línea nueva
+    gdf = gdf.set_geometry("GEOMETRY")
     return gdf.to_crs(epsg=4326)
-
-
 
 # ══════════════════════════════════════════════
 # SIDEBAR
@@ -116,11 +127,9 @@ with st.sidebar:
     st.markdown("### 🗺️ Mapa")
     nivel = st.selectbox("Nivel geográfico", ["Departamento", "Provincia", "Distrito"])
     color_scale = st.selectbox("Paleta", ["Reds","YlOrRd","Blues","Plasma","Oranges","Viridis"])
-    metrica_mapa = st.radio(
-        "Métrica en el mapa",
-        ["N° de MCPs", "Total Electores", "Promedio Electores/MCP"],
-        index=0,
-    )
+    # Métrica visual en el mapa (Folium siempre muestra N° MCPs en color
+    # y el popup muestra el detalle completo al hacer click)
+    st.caption("🗺️ Color = N° MCPs · Click = lista de MCPs del área")
     st.divider()
     st.markdown("### 📊 Gráficos")
     top_n = st.slider("Top N", 10, 25, 15)
@@ -179,7 +188,8 @@ mcp_per_dist = round(total_mcp / total_d, 1) if total_d else 0
 
 kpis = [
     ("🏛️", "Total MCPs",            f"{total_mcp:,}",      "centros de votación"),
-    ("🗂️", "Total Electores",        f"{total_e:,}",        "para elecciones de MCP"),
+    ("🗂️", "Total Electores",        f"{total_e:,}",        "en el padrón filtrado"),
+    ("👤", "Promedio Electores/MCP", f"{avg_e_mcp:,}",      f"mediana {median_e_mcp:,}"),
     ("📈", "MCP más grande",         f"{max_e:,}",          "electores máximo"),
     ("📉", "MCP más pequeño",        f"{min_e:,}",          "electores mínimo"),
     ("📍", "MCPs por Distrito",      f"{mcp_per_dist}",     f"{total_d:,} distritos"),
@@ -215,11 +225,6 @@ def agg_nivel(cols):
 by_dept = agg_nivel("DEPARTAMENTO").sort_values("MCPS", ascending=False)
 by_prov = agg_nivel(["DEPARTAMENTO","PROVINCIA"]).sort_values("MCPS", ascending=False)
 by_dist = agg_nivel(["DEPARTAMENTO","PROVINCIA","DISTRITO"]).sort_values("MCPS", ascending=False)
-
-# Mapa de métrica seleccionada
-metrica_col = {"N° de MCPs":"MCPS",
-               "Total Electores":"ELECTORES",
-               "Promedio Electores/MCP":"PROM_ELECT"}[metrica_mapa]
 
 # ══════════════════════════════════════════════
 # FILA 1 — MAPA + BARRAS MCPs POR DEPARTAMENTO
@@ -260,86 +265,32 @@ with col_bar:
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
-# ── Mapa coroplético ──────────────────────────
+# ── Mapa HTML pre-generado (Folium) ──────────
 with col_map:
     st.markdown(
-        f'<div class="sec-title">🗺️ {metrica_mapa} por {nivel}</div>',
+        f'<div class="sec-title">🗺️ MCPs por {nivel} — click para ver detalle</div>',
         unsafe_allow_html=True,
     )
-    zip_path = SHP_ZIPS[nivel]
-
-    if not os.path.exists(zip_path):
-        st.warning(f"⚠️ No se encontró **{os.path.basename(zip_path)}** en el directorio de la app.\n\n"
-                   f"Agrega el archivo al repo junto a `dashboard_electoral.py`.")
+    html_path = MAP_HTML[nivel]
+    if not os.path.exists(html_path):
+        st.info(
+            f"📋 El mapa **{os.path.basename(html_path)}** aún no existe.\n\n"
+            f"Ejecuta **`generar_mapas.py`** en Google Colab, descarga los 3 HTMLs "
+            f"y colócalos en el mismo directorio que esta app.",
+            icon="ℹ️",
+        )
+        st.code(
+            "# En Colab:\n"
+            "# 1. Sube ELECTORES_POR_MCP.xlsx + los 3 ZIPs\n"
+            "# 2. Ejecuta generar_mapas.py\n"
+            "# 3. Descarga mapa_departamento.html, mapa_provincia.html, mapa_distrito.html\n"
+            "# 4. Súbelos al repo junto a dashboard_electoral.py",
+            language="python",
+        )
     else:
-        try:
-            gdf      = load_shp(zip_path)
-            name_col = SHP_NAME_COL[nivel]
-
-            # Fallback automático si la columna no existe
-            if name_col not in gdf.columns:
-                candidates = [c for c in gdf.columns
-                              if any(k in c for k in ["DIST","PROV","DEP","NOMB"])]
-                name_col = candidates[0] if candidates else gdf.columns[0]
-                st.caption(f"ℹ️ Columna detectada: `{name_col}`")
-
-            # Tabla de aggregación según nivel
-            agg_map = {
-                "Departamento": by_dept.rename(columns={"DEPARTAMENTO": name_col}),
-                "Provincia":    by_prov.rename(columns={"PROVINCIA": name_col}),
-                "Distrito":     by_dist.rename(columns={"DISTRITO": name_col}),
-            }[nivel]
-
-            # Normalizar texto para join
-            gdf[name_col]      = gdf[name_col].str.upper().str.strip()
-            agg_map[name_col]  = agg_map[name_col].str.upper().str.strip()
-
-            merged = gdf.merge(
-                agg_map[[name_col, "MCPS", "ELECTORES", "PROM_ELECT"]],
-                on=name_col, how="left"
-            )
-            merged["MCPS"]       = merged["MCPS"].fillna(0).astype(int)
-            merged["ELECTORES"]  = merged["ELECTORES"].fillna(0).astype(int)
-            merged["PROM_ELECT"] = merged["PROM_ELECT"].fillna(0).astype(int)
-
-            fig_map = px.choropleth_map(
-                merged,
-                geojson=merged.__geo_interface__,
-                locations=merged.index,
-                color=metrica_col,
-                color_continuous_scale=color_scale,
-                hover_name=name_col,
-                hover_data={
-                    "MCPS":       True,
-                    "ELECTORES":  ":,",
-                    "PROM_ELECT": True,
-                },
-                labels={
-                    "MCPS":       "N° MCPs",
-                    "ELECTORES":  "Electores",
-                    "PROM_ELECT": "Prom. Elect/MCP",
-                    metrica_col:  metrica_mapa,
-                },
-                center={"lat": -9.19, "lon": -75.0},
-                zoom=3.8,
-                opacity=0.80,
-            )
-            fig_map.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                font_color="#f0f6fc",
-                margin=dict(l=0, r=0, t=0, b=0),
-                height=440,
-                coloraxis_colorbar=dict(
-                    title=metrica_mapa,
-                    tickfont_color="#f0f6fc",
-                    title_font_color="#f0f6fc",
-                ),
-                map_style="carto-darkmatter",
-            )
-            st.plotly_chart(fig_map, use_container_width=True)
-
-        except Exception as e:
-            st.warning(f"⚠️ Error al renderizar el mapa: {e}")
+        with open(html_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        components.html(html_content, height=460, scrolling=False)
 
 # ══════════════════════════════════════════════
 # FILA 2 — DISTRIBUCIÓN DE ELECTORES POR MCP
