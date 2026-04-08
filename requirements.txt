@@ -1,6 +1,6 @@
 streamlit
-geopandas
 pandas
-numpy
+geopandas
+plotly
+requests
 openpyxl
-zipfile
