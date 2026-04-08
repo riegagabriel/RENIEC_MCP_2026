@@ -1,1 +1,6 @@
 streamlit
+geopandas
+pandas
+numpy
+openpyxl
+zipfile
