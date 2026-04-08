@@ -2,12 +2,6 @@
 Dashboard Electoral Perú — Análisis de MCPs
 Mesas de Centro de Votación × Padrón Electoral RENIEC 2025
 
-Estructura esperada en el repo:
-  ├── dashboard_electoral.py
-  ├── ELECTORES_POR_MCP.xlsx
-  ├── DISTRITO.zip
-  ├── PROVINCIA.zip
-  └── DEPARTAMENTO.zip
 """
 
 import os
@@ -66,9 +60,9 @@ BASE = os.path.dirname(__file__)
 
 PADRON_PATH = os.path.join(BASE, "ELECTORES_POR_MCP.xlsx")
 SHP_ZIPS = {
-    "Departamento": os.path.join(BASE, "DEPARTAMENTO.zip"),
-    "Provincia":    os.path.join(BASE, "PROVINCIA.zip"),
-    "Distrito":     os.path.join(BASE, "DISTRITO.zip"),
+    "Departamento": os.path.join(BASE, "DEPARTAMENTOS_LIMITES.zip"),
+    "Provincia":    os.path.join(BASE, "PROVINCIAL_LIMITES.zip"),
+    "Distrito":     os.path.join(BASE, "DISTRITOS_LIMITES.zip"),
 }
 
 # Columnas de nombre en cada shapefile (según tu print())
