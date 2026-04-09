@@ -147,7 +147,7 @@ resultado = (
 st.dataframe(resultado, use_container_width=True)
 
 st.metric(
-    "Electores en distrito seleccionado",
+    "Electores de MCP en distrito seleccionado",
     int(resultado["CANTIDAD DE ELECTORES"].sum())
 )
 
