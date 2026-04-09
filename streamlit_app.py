@@ -1,43 +1,18 @@
 # ══════════════════════════════════════════════
-# DASHBOARD MCPs PERÚ — VERSIÓN LIMPIA
+# MCPs PERÚ — DASHBOARD FINAL PRO
 # ══════════════════════════════════════════════
 
 import os
 import zipfile
 import tempfile
-
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
 
-# 🔥 NUEVO
 from st_aggrid import AgGrid, GridOptionsBuilder
 
-# ══════════════════════════════════════════════
-# CONFIG
-# ══════════════════════════════════════════════
-st.set_page_config(
-    page_title="MCPs Perú — Dashboard Electoral",
-    layout="wide"
-)
-
-# ══════════════════════════════════════════════
-# ESTILOS KPI
-# ══════════════════════════════════════════════
-st.markdown("""
-<style>
-.kpi-card {
-    background:#161b22;
-    border:1px solid #30363d;
-    border-radius:10px;
-    padding:16px;
-    text-align:center;
-}
-.kpi-value { font-size:26px; font-weight:800; color:white; }
-.kpi-label { font-size:11px; color:#8b949e; }
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(layout="wide")
 
 # ══════════════════════════════════════════════
 # CARGA
@@ -57,7 +32,7 @@ def load_data():
 df = load_data()
 
 # ══════════════════════════════════════════════
-# SIDEBAR FILTROS
+# SIDEBAR FILTROS BASE
 # ══════════════════════════════════════════════
 with st.sidebar:
     st.title("Filtros")
@@ -74,71 +49,113 @@ with st.sidebar:
 # ══════════════════════════════════════════════
 # KPIs
 # ══════════════════════════════════════════════
+st.markdown("## 📊 Indicadores")
+
 total_mcp = len(df_f)
 total_e = int(df_f["CANTIDAD DE ELECTORES"].sum())
 total_dist = df_f["DISTRITO"].nunique()
 
 kpis = [
-    ("Total MCPs", f"{total_mcp:,}"),
-    ("Total Electores", f"{total_e:,}"),
+    ("MCPs", f"{total_mcp:,}"),
+    ("Electores", f"{total_e:,}"),
     ("Distritos", f"{total_dist:,}")
 ]
 
 cols = st.columns(len(kpis))
-
 for col, (label, value) in zip(cols, kpis):
-    col.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-value">{value}</div>
-        <div class="kpi-label">{label}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    col.metric(label, value)
 
 # ══════════════════════════════════════════════
-# MAPA (igual que el tuyo)
+# MAPA + BARRAS
 # ══════════════════════════════════════════════
-st.markdown("## 🗺️ Mapa")
+col1, col2 = st.columns([2,1])
 
-MAP_PATH = os.path.join(BASE, "mapa_distrito.zip")
+with col1:
+    st.markdown("## 🗺️ Mapa")
 
-if os.path.exists(MAP_PATH):
-    with tempfile.TemporaryDirectory() as tmp:
-        with zipfile.ZipFile(MAP_PATH) as z:
-            z.extractall(tmp)
+    MAP_PATH = os.path.join(BASE, "mapa_distrito.zip")
 
-        html = [f for f in os.listdir(tmp) if f.endswith(".html")][0]
-        with open(os.path.join(tmp, html), "r", encoding="utf-8") as f:
-            components.html(f.read(), height=500)
+    if os.path.exists(MAP_PATH):
+        with tempfile.TemporaryDirectory() as tmp:
+            with zipfile.ZipFile(MAP_PATH) as z:
+                z.extractall(tmp)
+
+            html = [f for f in os.listdir(tmp) if f.endswith(".html")][0]
+            with open(os.path.join(tmp, html), "r", encoding="utf-8") as f:
+                components.html(f.read(), height=500)
+
+with col2:
+    st.markdown("## 📊 Electores por distrito")
+
+    dist_plot = (
+        df_f.groupby(["PROVINCIA","DISTRITO"])["CANTIDAD DE ELECTORES"]
+        .sum()
+        .reset_index()
+        .sort_values("CANTIDAD DE ELECTORES", ascending=False)
+        .head(15)
+    )
+
+    dist_plot["LABEL"] = dist_plot["DISTRITO"] + " (" + dist_plot["PROVINCIA"] + ")"
+
+    fig = px.bar(
+        dist_plot.sort_values("CANTIDAD DE ELECTORES"),
+        x="CANTIDAD DE ELECTORES",
+        y="LABEL",
+        orientation="h"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 # ══════════════════════════════════════════════
-# GRÁFICO CLAVE
+# 🔥 FILTRO JERÁRQUICO INTERACTIVO (LO QUE PEDISTE)
 # ══════════════════════════════════════════════
-st.markdown("## 📊 Electores por Distrito")
+st.markdown("## 🔎 Exploración jerárquica")
 
-dist_plot = (
-    df_f.groupby(["PROVINCIA","DISTRITO"])["CANTIDAD DE ELECTORES"]
-    .sum()
-    .reset_index()
-    .sort_values("CANTIDAD DE ELECTORES", ascending=False)
-    .head(20)
+colA, colB, colC, colD = st.columns(4)
+
+with colA:
+    sel_dept = st.selectbox(
+        "Departamento",
+        sorted(df_f["DEPARTAMENTO"].unique())
+    )
+
+df_lvl1 = df_f[df_f["DEPARTAMENTO"] == sel_dept]
+
+with colB:
+    sel_prov = st.selectbox(
+        "Provincia",
+        sorted(df_lvl1["PROVINCIA"].unique())
+    )
+
+df_lvl2 = df_lvl1[df_lvl1["PROVINCIA"] == sel_prov]
+
+with colC:
+    sel_dist = st.selectbox(
+        "Distrito",
+        sorted(df_lvl2["DISTRITO"].unique())
+    )
+
+df_lvl3 = df_lvl2[df_lvl2["DISTRITO"] == sel_dist]
+
+with colD:
+    sel_mcp = st.selectbox(
+        "MCP",
+        sorted(df_lvl3["MCP"].unique())
+    )
+
+df_final = df_lvl3[df_lvl3["MCP"] == sel_mcp]
+
+st.dataframe(df_final)
+
+st.metric(
+    "Electores en MCP seleccionado",
+    int(df_final["CANTIDAD DE ELECTORES"].sum())
 )
 
-dist_plot["LABEL"] = dist_plot["DISTRITO"] + " (" + dist_plot["PROVINCIA"] + ")"
-
-fig = px.bar(
-    dist_plot.sort_values("CANTIDAD DE ELECTORES"),
-    x="CANTIDAD DE ELECTORES",
-    y="LABEL",
-    orientation="h",
-    text="CANTIDAD DE ELECTORES"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
 # ══════════════════════════════════════════════
-# TABLA JERÁRQUICA SIMPLE
+# TABLA GENERAL
 # ══════════════════════════════════════════════
-st.markdown("## 📋 Tabla jerárquica")
+st.markdown("## 📋 Tabla general")
 
 table_df = (
     df_f.groupby(
@@ -148,28 +165,35 @@ table_df = (
     .reset_index()
 )
 
-st.dataframe(table_df, use_container_width=True, height=400)
+st.dataframe(table_df, height=400)
 
 # ══════════════════════════════════════════════
-# 🔥 TABLA ÁRBOL EXPANDIBLE (AGGRID)
+# 🌳 TABLA ÁRBOL REAL (CORREGIDA)
 # ══════════════════════════════════════════════
-st.markdown("## 🌳 Tabla expandible (árbol)")
+st.markdown("## 🌳 Tabla expandible")
 
-gb = GridOptionsBuilder.from_dataframe(table_df)
+tree_df = table_df.copy()
 
-gb.configure_column("DEPARTAMENTO", rowGroup=True)
-gb.configure_column("PROVINCIA", rowGroup=True)
-gb.configure_column("DISTRITO", rowGroup=True)
-gb.configure_column("MCP", rowGroup=True)
+tree_df["path"] = tree_df.apply(
+    lambda x: [x["DEPARTAMENTO"], x["PROVINCIA"], x["DISTRITO"], str(x["MCP"])],
+    axis=1
+)
 
-gb.configure_default_column(groupable=True)
-
-gridOptions = gb.build()
+gridOptions = {
+    "treeData": True,
+    "animateRows": True,
+    "groupDefaultExpanded": 1,
+    "getDataPath": {"function": "function(data){return data.path;}"},
+    "autoGroupColumnDef": {
+        "headerName": "Ubicación",
+        "cellRendererParams": {"suppressCount": True}
+    }
+}
 
 AgGrid(
-    table_df,
+    tree_df,
     gridOptions=gridOptions,
-    enable_enterprise_modules=True,
+    height=500,
     fit_columns_on_grid_load=True,
-    height=500
+    enable_enterprise_modules=True
 )
