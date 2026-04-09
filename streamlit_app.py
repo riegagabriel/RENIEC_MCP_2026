@@ -138,7 +138,7 @@ df_final = df_lvl2[df_lvl2["DISTRITO"] == sel_dist]
 # resultado
 resultado = (
     df_final.groupby(
-        ["DEPARTAMENTO","PROVINCIA","DISTRITO"]
+        ["DEPARTAMENTO","PROVINCIA","DISTRITO","MCP"]
     )["CANTIDAD DE ELECTORES"]
     .sum()
     .reset_index()
@@ -158,7 +158,7 @@ st.markdown("## 📋 Tabla general")
 
 table_df = (
     df_f.groupby(
-        ["DEPARTAMENTO","PROVINCIA","DISTRITO"]
+        ["DEPARTAMENTO","PROVINCIA","DISTRITO","MCP"]
     )["CANTIDAD DE ELECTORES"]
     .sum()
     .reset_index()
