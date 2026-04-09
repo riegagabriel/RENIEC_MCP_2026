@@ -17,7 +17,7 @@ st.set_page_config(layout="wide")
 # ══════════════════════════════════════════════
 BASE = os.path.dirname(__file__)
 PADRON_PATH = os.path.join(BASE, "ELECTORES_POR_MCP.xlsx")
-MAP_PATH = os.path.join(BASE, "mapa_distrital_final.zip")
+MAP_PATH = os.path.join(BASE, "mapa_final.zip")
 
 @st.cache_data
 def load_data():
