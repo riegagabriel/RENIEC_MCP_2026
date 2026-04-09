@@ -4,3 +4,4 @@ geopandas
 plotly
 requests
 openpyxl
+streamlit-aggrid
