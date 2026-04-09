@@ -107,7 +107,7 @@ with col_bar:
 # ══════════════════════════════════════════════
 # EXPLORACIÓN JERÁRQUICA
 # ══════════════════════════════════════════════
-st.markdown("## 🔎 Exploración jerárquica")
+st.markdown("## 🔎 Buscador por distrito")
 
 colA, colB, colC = st.columns(3)
 
